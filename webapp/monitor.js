@@ -10,6 +10,7 @@ const log = (m) => {
 const token = new URLSearchParams(location.search).get('token') || '';
 let ws = null;
 let devices = [];
+let recording = new Set();   // sids the hub is recording server-side
 let currentId = null;
 
 let ctx = null, player = null, gain = null, analyser = null;
@@ -39,6 +40,7 @@ function onMessage(ev) {
   if (typeof ev.data === 'string') {
     const m = JSON.parse(ev.data);
     if (m.type === 'devices') { devices = m.list; renderDevices(); }
+    else if (m.type === 'recording') { recording = new Set(m.ids || []); renderDevices(); }
     else if (m.type === 'subscribed') {
       playSR = m.sr || 48000;
       dsp.setSampleRate(playSR);
@@ -90,8 +92,27 @@ function renderDevices() {
     btn.className = d.id === currentId ? 'primary' : '';
     btn.onclick = () => listen(d.id);
     row.appendChild(btn);
+
+    // Server-side recording: the hub keeps writing even if this page closes.
+    const rec = document.createElement('button');
+    const on = recording.has(d.id);
+    rec.textContent = on ? '● REC' : 'Record';
+    rec.className = on ? 'primary' : 'ghost';
+    rec.title = on
+      ? 'Recording on the hub — continues if you close this page. Click to stop.'
+      : 'Record this device on the hub (not in this browser).';
+    rec.onclick = () => toggleRecord(d.id);
+    row.appendChild(rec);
+
     box.appendChild(row);
   }
+}
+
+function toggleRecord(id) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const on = !recording.has(id);
+  ws.send(JSON.stringify({ type: 'record', id, on }));
+  log(on ? `[*] Recording device #${id} on the hub…` : `[i] Stopping recording for #${id}.`);
 }
 
 function listen(id) {

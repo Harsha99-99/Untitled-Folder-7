@@ -12,6 +12,13 @@ interface Env {
   HUB: DurableObjectNamespace;
   ASSETS: Fetcher;
   HUB_TOKEN?: string;
+  // Recording target. Set as encrypted secrets, never in wrangler.toml:
+  //   npx wrangler secret put SUPABASE_URL
+  //   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  // Without these the hub still relays; it just does not record.
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+  SUPABASE_RECORDINGS_BUCKET?: string;
 }
 
 export default {
