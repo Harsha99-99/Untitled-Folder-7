@@ -22,12 +22,29 @@ interface Env {
   // Safe to hand to the browser (it is RLS-scoped and designed to be public).
   // Needed for email/password sign-in on the monitor.
   SUPABASE_ANON_KEY?: string;
+  // Hostname that serves the admin monitor. Every other hostname is the
+  // public broadcast surface. Override with a var if the domain changes.
+  ADMIN_HOST?: string;
 }
 
 // Recordings live in a PRIVATE Supabase bucket, so the browser cannot read
 // them directly. Rather than shipping a Supabase key to the page, the Worker
 // proxies both calls with the service-role key it already holds, gated by the
 // same HUB_TOKEN that gates listening.
+// The deployment is split across two hostnames with different trust levels:
+//
+//   listen.<domain>  public. Anyone may open it and broadcast their mic.
+//                    The monitor page, the API and the listener role are all
+//                    refused here, so a leaked credential is not enough to
+//                    listen from the public surface.
+//   hub.<domain>     admin. Sign-in required to listen or read recordings.
+//
+// Serving both from one Worker keeps a single deployment and one relay.
+function isAdminHost(url: URL, env: Env): boolean {
+  const admin = (env.ADMIN_HOST || "hub.thesaratech.com").toLowerCase();
+  return url.hostname.toLowerCase() === admin;
+}
+
 // Authorize a listener/monitor request. Two accepted credentials:
 //
 //   1. A Supabase access token (JWT) from email/password sign-in — the real
@@ -110,6 +127,34 @@ async function signRecording(env: Env, storageKey: string): Promise<Response> {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    const admin = isAdminHost(url, env);
+
+    // ---- public broadcast host: sender surface only --------------------
+    if (!admin) {
+      const p = url.pathname.toLowerCase();
+      if (p.startsWith("/api/") || p.startsWith("/monitor")) {
+        return new Response("Not found", { status: 404 });
+      }
+      if (url.pathname === "/ws") {
+        if (url.searchParams.get("role") !== "sender") {
+          // Refuse the listener role outright here — not an auth failure, this
+          // host simply does not do listening.
+          const pair = new WebSocketPair();
+          pair[1].accept();
+          pair[1].close(4004, "listening is not available on this host");
+          return new Response(null, { status: 101, webSocket: pair[0] });
+        }
+        const id = env.HUB.idFromName("global");
+        return env.HUB.get(id).fetch(req);
+      }
+      return env.ASSETS.fetch(req);
+    }
+
+    // ---- admin host ----------------------------------------------------
+    // Land straight on the monitor rather than the broadcast page.
+    if (url.pathname === "/") {
+      return Response.redirect(new URL("/monitor.html", url).toString(), 302);
+    }
 
     if (url.pathname === "/api/config") {
       // Public on purpose: the anon key is meant to reach the browser. Tells

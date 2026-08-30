@@ -1,6 +1,6 @@
 // app.js — sender page for remote devices.
 // The mic remains idle until the user taps Start broadcast, and only then does
-// the browser connect to the tunnel hub and stream RAW mono Int16 PCM.
+// the browser connect to the hub and stream RAW mono Int16 PCM.
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => {
@@ -370,7 +370,7 @@ function setStatus(text, on) {
 window.addEventListener('DOMContentLoaded', () => {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     setStatus('Needs HTTPS (secure context)', false);
-    log('[-] getUserMedia unavailable — open over HTTPS / the tunnel URL.');
+    log('[-] getUserMedia unavailable — this page must be opened over HTTPS.');
     return;
   }
 
@@ -395,5 +395,5 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   setBroadcastButtonState();
   setStatus('Ready to broadcast', false);
-  log('[i] Open the tunnel URL in your browser, then tap “Start broadcast” to connect to the hub.');
+  log('[i] Tap “Start broadcast” to stream this device’s microphone to the hub.');
 });

@@ -33,8 +33,15 @@ new_sqlite_classes = ["AudioHub"]
 #
 # Deliberately a SUBDOMAIN: thesaratech.com itself serves an existing site, and
 # routing the apex here would take that site down.
+# Admin monitor: sign-in required.
 [[routes]]
 pattern = "hub.thesaratech.com"
+custom_domain = true
+
+# Public broadcast page: open to anyone, serves the sender only. The Worker
+# refuses the monitor, the API and the listener WebSocket role on this host.
+[[routes]]
+pattern = "listen.thesaratech.com"
 custom_domain = true
 
 # HUB_TOKEN gates the monitor/listener role. It is intentionally NOT set here —
