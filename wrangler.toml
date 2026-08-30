@@ -16,6 +16,12 @@ compatibility_date = "2026-08-01"
 [assets]
 directory = "./webapp"
 binding = "ASSETS"
+# REQUIRED for the host split to mean anything. By default Cloudflare serves a
+# matching static file BEFORE the Worker runs, so monitor.html was still
+# reachable on the public broadcast host even though the Worker refuses it.
+# Running the Worker first makes it the gatekeeper; it defers to assets via
+# env.ASSETS.fetch() once the request is allowed.
+run_worker_first = true
 
 # The relay. One SQLite-backed Durable Object class; the free Workers plan
 # supports these and is not billed for their storage.
