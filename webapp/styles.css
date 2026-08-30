@@ -44,6 +44,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 .status-big { font-size: 1.6rem; font-weight: 700; text-align: center; margin: 22px 0; color: var(--accent); }
 .tap-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: flex; align-items: center; justify-content: center; text-align: center; z-index: 50; cursor: pointer; }
+/* A class setting display:flex outranks the UA stylesheet's [hidden]{display:none},
+   so el.hidden = true would not hide this overlay. Make hidden win explicitly. */
+.tap-overlay[hidden] { display: none; }
 .tap-big { color: #fff; font-size: 1.6rem; font-weight: 700; }
 .tap-sub { color: #cbd5e0; margin-top: 10px; }
 .sender { max-width: 560px; }
