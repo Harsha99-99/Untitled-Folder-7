@@ -1,4 +1,5 @@
 // monitor.js — operator dashboard: list live devices, listen to one live.
+import { VoiceDSP } from './dsp.js';
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => {
@@ -13,6 +14,11 @@ let currentId = null;
 
 let ctx = null, player = null, gain = null, analyser = null;
 let playSR = 48000;
+
+// Per-listener voice enhancement. The wire carries RAW audio (the hub is a
+// pure relay now), so enhancement happens here at playback — the desktop
+// console used to do this server-side.
+const dsp = new VoiceDSP(playSR);
 
 // ---- WebSocket to hub -----------------------------------------------------
 function connect() {
@@ -35,6 +41,8 @@ function onMessage(ev) {
     if (m.type === 'devices') { devices = m.list; renderDevices(); }
     else if (m.type === 'subscribed') {
       playSR = m.sr || 48000;
+      dsp.setSampleRate(playSR);
+      dsp.reset();          // don't carry one device's AGC/gate state into another
       log(`[+] Listening to "${m.name}" @ ${playSR} Hz.`);
       startPlayback(playSR);
     }
@@ -42,12 +50,22 @@ function onMessage(ev) {
     // binary PCM (Int16) from the subscribed device
     if (!player) return;
     const i16 = new Int16Array(ev.data);
-    const f32 = new Float32Array(i16.length);
+    const raw = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) raw[i] = i16[i] / 32768;
+
+    const f32 = dsp.process(raw);
+
+    // Meter and waveform show what you actually hear, post-enhancement.
     let peak = 0, sum = 0;
-    for (let i = 0; i < i16.length; i++) { const v = i16[i] / 32768; f32[i] = v; const a = Math.abs(v); if (a > peak) peak = a; sum += v * v; }
-    player.port.postMessage({ type: 'pcm', data: f32 }, [f32.buffer]);
-    lastRms = Math.sqrt(sum / Math.max(1, i16.length)); lastPeak = peak;
-    pushWave(i16);
+    for (let i = 0; i < f32.length; i++) { const v = f32[i]; const a = Math.abs(v); if (a > peak) peak = a; sum += v * v; }
+    lastRms = Math.sqrt(sum / Math.max(1, f32.length)); lastPeak = peak;
+
+    const shown = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) shown[i] = Math.max(-1, Math.min(1, f32[i])) * 32767;
+    pushWave(shown);
+
+    const outBuf = new Float32Array(f32);
+    player.port.postMessage({ type: 'pcm', data: outBuf }, [outBuf.buffer]);
   }
 }
 
@@ -145,6 +163,17 @@ function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;
 window.addEventListener('DOMContentLoaded', () => {
   if (!token) { log('[-] No token in URL. Open the monitor link printed by the hub (…/monitor.html?token=…).'); }
   $('vol').oninput = (e) => { if (gain) gain.gain.value = (+e.target.value) / 100; };
+
+  const bindDsp = (id, key) => {
+    const el = $(id);
+    if (!el) return;
+    el.onchange = () => { dsp[key] = el.checked; dsp.reset(); };
+    dsp[key] = el.checked;
+  };
+  bindDsp('dspOn', 'enabled');
+  bindDsp('dspHp', 'highpass');
+  bindDsp('dspAgc', 'agc');
+  bindDsp('dspGate', 'gate');
   $('stopBtn').onclick = stopListening;
   renderDevices();
   connect();

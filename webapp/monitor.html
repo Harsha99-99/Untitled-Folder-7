@@ -20,6 +20,13 @@
       <button id="stopBtn" class="ghost" disabled>■ Stop listening</button>
     </section>
 
+    <section class="row wrap" style="gap:14px">
+      <label class="chk"><input type="checkbox" id="dspOn" checked /> <span>Enhance voice</span></label>
+      <label class="chk"><input type="checkbox" id="dspHp" checked /> <span>Highpass 110 Hz</span></label>
+      <label class="chk"><input type="checkbox" id="dspAgc" checked /> <span>Auto level</span></label>
+      <label class="chk"><input type="checkbox" id="dspGate" checked /> <span>Noise gate</span></label>
+    </section>
+
     <section id="devices" class="devices-list"></section>
 
     <section class="meter">
@@ -31,6 +38,6 @@
 
     <pre id="log" class="log"></pre>
   </main>
-  <script src="monitor.js"></script>
+  <script type="module" src="monitor.js"></script>
 </body>
 </html>
