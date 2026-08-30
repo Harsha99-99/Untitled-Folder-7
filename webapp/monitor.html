@@ -36,6 +36,14 @@
 
     <canvas id="wave" width="900" height="160"></canvas>
 
+    <section class="row" style="margin-top:18px">
+      <h2 style="font-size:15px;margin:0">Recordings</h2>
+      <span style="flex:1"></span>
+      <button id="recRefresh" class="ghost" type="button">Refresh</button>
+    </section>
+    <section id="recordings" class="devices-list"></section>
+    <audio id="recPlayer" controls style="width:100%;margin-top:8px;display:none"></audio>
+
     <pre id="log" class="log"></pre>
   </main>
   <script type="module" src="monitor.js"></script>

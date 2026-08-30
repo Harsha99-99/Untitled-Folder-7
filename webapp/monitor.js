@@ -40,7 +40,13 @@ function onMessage(ev) {
   if (typeof ev.data === 'string') {
     const m = JSON.parse(ev.data);
     if (m.type === 'devices') { devices = m.list; renderDevices(); }
-    else if (m.type === 'recording') { recording = new Set(m.ids || []); renderDevices(); }
+    else if (m.type === 'recording') {
+      const was = recording;
+      recording = new Set(m.ids || []);
+      renderDevices();
+      // A device that just stopped has flushed its tail — pick up the new file.
+      if (was.size > recording.size) setTimeout(loadRecordings, 1500);
+    }
     else if (m.type === 'subscribed') {
       playSR = m.sr || 48000;
       dsp.setSampleRate(playSR);
@@ -68,6 +74,99 @@ function onMessage(ev) {
 
     const outBuf = new Float32Array(f32);
     player.port.postMessage({ type: 'pcm', data: outBuf }, [outBuf.buffer]);
+  }
+}
+
+// ---- recordings -----------------------------------------------------------
+// The bucket is private, so the page never touches Supabase directly: the
+// Worker proxies the listing and mints short-lived signed URLs, reusing the
+// same token that gates listening.
+const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB');
+
+async function loadRecordings() {
+  const box = $('recordings');
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const r = await fetch(`/api/recordings?token=${encodeURIComponent(token)}`);
+    const data = await r.json();
+    if (!r.ok) {
+      box.innerHTML = `<div class="empty">${escapeHtml(data.hint || data.error || 'Could not load recordings.')}</div>`;
+      return;
+    }
+    renderRecordings(data.items || []);
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Could not reach the hub: ${escapeHtml(String(e))}</div>`;
+  }
+}
+
+function renderRecordings(items) {
+  const box = $('recordings');
+  if (!items.length) {
+    box.innerHTML = '<div class="empty">No recordings yet. Press Record on a device above — the hub keeps writing even if you close this page.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'device';
+    const when = new Date(it.started_at).toLocaleString();
+    row.innerHTML = `
+      <div class="dinfo">
+        <div class="dname">${escapeHtml(it.device_name || 'device')}</div>
+        <div class="dmeta mono">${escapeHtml(when)} · ${fmtBytes(it.bytes || 0)} · ${it.sample_rate || '?'} Hz</div>
+      </div>`;
+    const play = document.createElement('button');
+    play.textContent = 'Play';
+    play.onclick = () => playRecording(it.storage_key, play);
+    row.appendChild(play);
+    const dl = document.createElement('button');
+    dl.textContent = 'Download';
+    dl.className = 'ghost';
+    dl.onclick = () => downloadRecording(it.storage_key, dl);
+    row.appendChild(dl);
+    box.appendChild(row);
+  }
+}
+
+async function signedUrl(key) {
+  const r = await fetch(`/api/recording-url?token=${encodeURIComponent(token)}&key=${encodeURIComponent(key)}`);
+  const d = await r.json();
+  if (!r.ok || !d.url) throw new Error(d.error || 'could not sign URL');
+  return d.url;
+}
+
+async function playRecording(key, btn) {
+  const prev = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const url = await signedUrl(key);
+    const el = $('recPlayer');
+    el.src = url;
+    el.style.display = 'block';
+    await el.play().catch(() => {});   // autoplay may be blocked; controls still work
+    log(`[+] Playing ${key}`);
+  } catch (e) {
+    log('[-] ' + e.message);
+  } finally {
+    btn.textContent = prev;
+  }
+}
+
+async function downloadRecording(key, btn) {
+  const prev = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const url = await signedUrl(key);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = key.split('/').pop() || 'recording.wav';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    log('[-] ' + e.message);
+  } finally {
+    btn.textContent = prev;
   }
 }
 
@@ -195,6 +294,9 @@ window.addEventListener('DOMContentLoaded', () => {
   bindDsp('dspHp', 'highpass');
   bindDsp('dspAgc', 'agc');
   bindDsp('dspGate', 'gate');
+
+  $('recRefresh').onclick = loadRecordings;
+  loadRecordings();
   $('stopBtn').onclick = stopListening;
   renderDevices();
   connect();
