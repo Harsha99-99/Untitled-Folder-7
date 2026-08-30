@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Broadcasting</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="sender">
+    <h1>Broadcasting <span id="dot" class="dot off"></span></h1>
+    <p class="sub">Press Start broadcast to connect this device to the tunnel hub.
+      Enhancement and recording are controlled from the operator console.</p>
+
+    <section class="row">
+      <label for="devName" class="hint">Device name</label>
+      <input id="devName" type="text" placeholder="e.g. Kitchen"
+             style="flex:1;padding:9px 10px;border-radius:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border)" />
+    </section>
+
+    <section class="row">
+      <label for="micSel" class="hint">Microphone</label>
+      <select id="micSel"
+              style="flex:1;padding:9px 10px;border-radius:8px;background:var(--panel);color:var(--fg);border:1px solid var(--border)">
+        <option value="">Default microphone</option>
+      </select>
+      <button id="micRefresh" class="ghost" type="button">Refresh</button>
+    </section>
+
+    <section class="meter">
+      <div class="meterbar"><div id="meterFill"></div></div>
+      <div id="meterLbl" class="mono">—</div>
+    </section>
+
+    <div id="statusBig" class="status-big">Ready to broadcast</div>
+
+    <div class="row wrap" style="justify-content:center; margin-top:16px;">
+      <button id="startBtn" class="primary" type="button">Start broadcast</button>
+      <button id="stopBtn" class="ghost" type="button" hidden>Stop broadcast</button>
+    </div>
+
+    <pre id="log" class="log"></pre>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

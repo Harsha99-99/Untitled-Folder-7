@@ -1,0 +1,2 @@
+# Linux-only extras (installed inside the Docker image).
+pybluez>=0.23

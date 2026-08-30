@@ -1,0 +1,39 @@
+# deploy/Dockerfile.hub — production image for the WebSocket relay (hub.py).
+#
+# The relay itself only needs aiohttp: it accepts sender/listener sockets,
+# fans audio out, and serves the static sender + monitor pages. All DSP and
+# recording live in the desktop console (hub_app.py), which is NOT part of
+# this image. Keep it lean so it starts fast and scales cheaply.
+#
+#   docker build -f deploy/Dockerfile.hub -t audio-hub .
+#   docker run -p 8000:8000 -e HUB_TOKEN=... audio-hub
+
+FROM python:3.12-slim AS base
+
+# Run as a non-root user — the relay never needs privileges.
+RUN useradd --create-home --uid 10001 hub
+
+WORKDIR /app
+
+# Only the relay's dependency, pinned. Nothing from requirements.txt's
+# desktop/analysis stack (numpy/scipy/sounddevice) is needed here.
+RUN pip install --no-cache-dir "aiohttp>=3.10,<4"
+
+# Just the files the relay serves and runs.
+COPY hub.py ./
+COPY webapp ./webapp
+
+USER hub
+
+EXPOSE 8000
+
+# HUB_TOKEN is read by hub.py to gate the monitor/listener role. If unset,
+# hub.py generates a random one at boot (fine for dev, bad for a fixed URL —
+# always set it in production so the monitor link stays stable).
+ENV HUB_PORT=8000
+
+# A relay with no clients should still answer health checks quickly.
+HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request,os;urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"HUB_PORT\",8000)}/').read()" || exit 1
+
+CMD ["python", "hub.py", "--port", "8000"]

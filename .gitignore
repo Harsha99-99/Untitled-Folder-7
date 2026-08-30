@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.pyc
+logs/*.log
+data/captures/*
+data/analysis/*
+!data/captures/.gitkeep
+!data/analysis/.gitkeep
+reports/final_report.json
+config/dev_cert.pem
+config/dev_key.pem
+build/
+dist/
+*.spec
+config/hub_app.json
+
+# Secrets / env
+.env
+.env.local
+*.pem
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# ...but the PyInstaller spec is build source, keep it
+!BluetoothAudioHub.spec

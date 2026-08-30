@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hub Monitor — live devices</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Hub Monitor <span class="tag">local</span></h1>
+    <p class="sub">Live audio from every remote device streaming to this hub.
+      Click a device to listen. Token-gated — only reachable with your hub token.</p>
+
+    <section class="row">
+      <span id="status" class="hint">connecting…</span>
+      <span style="flex:1"></span>
+      <label class="chk"><span>Volume</span>
+        <input type="range" id="vol" min="0" max="100" value="100" style="width:140px" /></label>
+      <button id="stopBtn" class="ghost" disabled>■ Stop listening</button>
+    </section>
+
+    <section id="devices" class="devices-list"></section>
+
+    <section class="meter">
+      <div class="meterbar"><div id="meterFill"></div></div>
+      <div id="meterLbl" class="mono">— idle —</div>
+    </section>
+
+    <canvas id="wave" width="900" height="160"></canvas>
+
+    <pre id="log" class="log"></pre>
+  </main>
+  <script src="monitor.js"></script>
+</body>
+</html>

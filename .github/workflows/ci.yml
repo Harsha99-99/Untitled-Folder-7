@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  hub:
+    name: Relay (hub.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install relay deps
+        run: pip install "aiohttp>=3.10,<4" ruff
+
+      - name: Syntax check all Python
+        run: python -m compileall -q hub.py hub_app.py app.py serve.py main.py src
+
+      - name: Lint the relay
+        # The relay is the only code that ships to production, so gate on it.
+        # E402/E501 relaxed to match the existing style; expand over time.
+        run: ruff check hub.py --select E,F --ignore E402,E501,E722
+
+      - name: Smoke-test the relay boots and serves
+        run: |
+          HUB_TOKEN=citest python hub.py --port 8000 &
+          HUB_PID=$!
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8000/ >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8000/ >/dev/null && echo "relay serves index OK"
+          kill $HUB_PID
+
+  webapp:
+    name: Sender/monitor JS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Syntax-check the browser scripts
+        run: |
+          for f in webapp/app.js webapp/monitor.js webapp/worklet.js webapp/play-worklet.js; do
+            node --check "$f" && echo "ok: $f"
+          done
+
+  image:
+    name: Build hub image
+    runs-on: ubuntu-latest
+    needs: [hub, webapp]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production relay image
+        run: docker build -f deploy/Dockerfile.hub -t audio-hub:ci .

@@ -1,0 +1,36 @@
+# config/settings.yaml
+
+bluetooth:
+  adapter: hci0
+  scan_timeout: 10
+  connection_timeout: 15
+  device_class_filter: "audio"
+
+target:
+  device_name: "OnePlus Buds Pro 2"
+  vendor_id: "OnePlus"
+  product_hint: "Buds Pro"
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  codec: "SBC"
+  capture_duration: 30
+  buffer_size: 1024
+
+analysis:
+  voice_band_low: 300
+  voice_band_high: 3400
+  noise_floor_percentile: 10
+  dominant_frequency_count: 10
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/research.log"
+
+ethics:
+  authorized_testing: true
+  controlled_environment: true
+  documentation_required: true
+  responsible_disclosure: true

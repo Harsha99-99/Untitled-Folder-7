@@ -1,0 +1,20 @@
+# Keep line endings sane across Windows/Linux. Scripts and container files
+# that run on Linux MUST stay LF or they break (CRLF in a shell script or
+# Dockerfile causes "\r: command not found" style failures in the container).
+* text=auto
+
+*.sh            text eol=lf
+*.conf          text eol=lf
+Dockerfile*     text eol=lf
+deploy/**       text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+# Windows-only scripts stay CRLF.
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+
+# Binary assets — never normalise.
+*.ico           binary
+*.png           binary
+*.wav           binary

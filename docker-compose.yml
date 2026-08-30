@@ -1,0 +1,27 @@
+# docker-compose.yml
+#
+# Runs the BlueZ research container with the access the HCI/SCO sockets need:
+#   - network_mode: host      -> share the host's BT stack namespace
+#   - privileged + NET_ADMIN  -> raw HCI sockets, adapter control
+#   - /var/run/dbus mount      -> talk to the host's bluetoothd
+#
+# This works on a LINUX host with a Bluetooth adapter. On Docker Desktop
+# (Windows/macOS) the container is inside a VM with no host BT passthrough,
+# so use the native Windows BLE path for connect tests instead.
+
+services:
+  bt-research:
+    build: .
+    container_name: bt-research
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./:/app
+      - /var/run/dbus:/var/run/dbus
+      - /dev:/dev
+    stdin_open: true
+    tty: true
+    command: /bin/bash

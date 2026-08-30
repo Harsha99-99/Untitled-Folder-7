@@ -1,0 +1,15 @@
+# Cross-platform (Windows / macOS / Linux)
+bleak>=0.21
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+pydub>=0.25
+sounddevice>=0.4
+PyYAML>=6.0
+aiohttp>=3.10        # multi-device live-listening hub (hub.py)
+cryptography>=42     # self-signed cert for serve.py --https
+
+# Linux-only (Classic BT / SCO / HCI). Install inside the Docker image or on
+# a Linux host. Not installable on Windows — pip will fail there, which is
+# expected. Kept commented so `pip install -r requirements.txt` works on Win.
+# pybluez>=0.23
