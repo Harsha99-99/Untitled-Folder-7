@@ -27,6 +27,16 @@ class_name = "AudioHub"
 tag = "v1"
 new_sqlite_classes = ["AudioHub"]
 
+# Serve from the custom domain as well as the workers.dev URL. Cloudflare
+# provisions the DNS record and certificate on deploy because the zone is
+# already on this account.
+#
+# Deliberately a SUBDOMAIN: thesaratech.com itself serves an existing site, and
+# routing the apex here would take that site down.
+[[routes]]
+pattern = "hub.thesaratech.com"
+custom_domain = true
+
 # HUB_TOKEN gates the monitor/listener role. It is intentionally NOT set here —
 # add it as an encrypted secret so it never lives in the repo:
 #     npx wrangler secret put HUB_TOKEN

@@ -19,15 +19,49 @@ interface Env {
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_RECORDINGS_BUCKET?: string;
+  // Safe to hand to the browser (it is RLS-scoped and designed to be public).
+  // Needed for email/password sign-in on the monitor.
+  SUPABASE_ANON_KEY?: string;
 }
 
 // Recordings live in a PRIVATE Supabase bucket, so the browser cannot read
 // them directly. Rather than shipping a Supabase key to the page, the Worker
 // proxies both calls with the service-role key it already holds, gated by the
 // same HUB_TOKEN that gates listening.
-function tokenOk(url: URL, env: Env): boolean {
-  if (!env.HUB_TOKEN) return true; // unset = open, same rule as the WS gate
-  return url.searchParams.get("token") === env.HUB_TOKEN;
+// Authorize a listener/monitor request. Two accepted credentials:
+//
+//   1. A Supabase access token (JWT) from email/password sign-in — the real
+//      mechanism. Verified by asking Supabase who the token belongs to, so a
+//      revoked or expired session stops working immediately.
+//   2. HUB_TOKEN, the original shared secret. Kept so the move to accounts
+//      does not lock anyone out mid-transition; once sign-in works, remove the
+//      HUB_TOKEN secret and only real accounts are accepted.
+//
+// With neither configured the hub is open, matching the previous behaviour.
+async function authorize(url: URL, env: Env): Promise<boolean> {
+  const presented = url.searchParams.get("token") || "";
+
+  const authConfigured = Boolean(env.HUB_TOKEN) || Boolean(env.SUPABASE_ANON_KEY && env.SUPABASE_URL);
+  if (!authConfigured) return true;
+
+  if (env.HUB_TOKEN && presented === env.HUB_TOKEN) return true;
+  if (!presented) return false;
+
+  if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
+    try {
+      const base = env.SUPABASE_URL.replace(/\/+$/, "");
+      const r = await fetch(`${base}/auth/v1/user`, {
+        headers: {
+          Authorization: `Bearer ${presented}`,
+          apikey: env.SUPABASE_ANON_KEY,
+        },
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function supaReady(env: Env): boolean {
@@ -77,8 +111,18 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
+    if (url.pathname === "/api/config") {
+      // Public on purpose: the anon key is meant to reach the browser. Tells
+      // the page whether sign-in is available and where to send it.
+      return json({
+        supabaseUrl: env.SUPABASE_URL || null,
+        anonKey: env.SUPABASE_ANON_KEY || null,
+        authRequired: Boolean(env.HUB_TOKEN) || Boolean(env.SUPABASE_ANON_KEY && env.SUPABASE_URL),
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
-      if (!tokenOk(url, env)) return json({ error: "bad token" }, 403);
+      if (!(await authorize(url, env))) return json({ error: "unauthorized" }, 403);
       if (!supaReady(env)) {
         return json({ error: "recording storage not configured",
                       hint: "set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as Worker secrets" }, 503);
@@ -98,11 +142,11 @@ export default {
       // Gate listeners on the shared token, exactly like hub.py. The client
       // (monitor.js) expects close code 4003 on a bad token, so reject by
       // opening the socket and closing it with that code.
-      if (role === "listener" && env.HUB_TOKEN) {
-        if (url.searchParams.get("token") !== env.HUB_TOKEN) {
+      if (role === "listener") {
+        if (!(await authorize(url, env))) {
           const pair = new WebSocketPair();
           pair[1].accept();
-          pair[1].close(4003, "bad token");
+          pair[1].close(4003, "unauthorized");
           return new Response(null, { status: 101, webSocket: pair[0] });
         }
       }

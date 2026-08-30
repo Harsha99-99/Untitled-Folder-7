@@ -7,7 +7,55 @@ const log = (m) => {
   el.textContent += `${ts}  ${m}\n`; el.scrollTop = el.scrollHeight;
 };
 
-const token = new URLSearchParams(location.search).get('token') || '';
+// Credential used for the WebSocket and the /api calls. Either a Supabase
+// access token from sign-in, or a legacy ?token= shared secret.
+let token = new URLSearchParams(location.search).get('token') || '';
+let cfg = { supabaseUrl: null, anonKey: null, authRequired: true };
+const SESSION_KEY = 'hub.session';
+
+async function loadConfig() {
+  try { cfg = await (await fetch('/api/config')).json(); } catch { /* keep defaults */ }
+}
+
+function saveSession(s) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch {}
+}
+function readSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+async function signIn(email, password) {
+  if (!cfg.supabaseUrl || !cfg.anonKey) throw new Error('Sign-in is not configured on this hub.');
+  const r = await fetch(`${cfg.supabaseUrl.replace(/\/+$/, '')}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: cfg.anonKey },
+    body: JSON.stringify({ email, password }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error_description || d.msg || d.error || 'Sign-in failed.');
+  saveSession(d);
+  token = d.access_token;
+  return d;
+}
+
+// Resolve a usable credential before connecting. Returns true when we may go on.
+async function ensureAuth() {
+  await loadConfig();
+  if (!cfg.authRequired) return true;      // hub is open
+  if (token) return true;                  // ?token= shared secret still works
+  const s = readSession();
+  if (s && s.access_token) { token = s.access_token; return true; }
+  return false;
+}
+
+function showLogin(msg) {
+  const box = $('login');
+  if (box) box.hidden = false;
+  if (msg) $('loginErr').textContent = msg;
+}
 let ws = null;
 let devices = [];
 let recording = new Set();   // sids the hub is recording server-side
@@ -29,7 +77,12 @@ function connect() {
   ws.onopen = () => { $('status').textContent = 'connected'; log('[+] Connected to hub.'); };
   ws.onclose = (e) => {
     $('status').textContent = 'disconnected';
-    if (e.code === 4003) log('[-] Rejected: bad/missing token. Open the monitor URL printed by the hub.');
+    if (e.code === 4003) {
+      log('[-] Not authorized.');
+      clearSession();
+      showLogin('Session expired or invalid — sign in again.');
+      return;                    // don't reconnect against a rejected credential
+    }
     else { log('[-] Disconnected. Reconnecting in 2s…'); setTimeout(connect, 2000); }
   };
   ws.onerror = () => log('[-] WebSocket error.');
@@ -296,9 +349,45 @@ window.addEventListener('DOMContentLoaded', () => {
   bindDsp('dspGate', 'gate');
 
   $('recRefresh').onclick = loadRecordings;
-  loadRecordings();
+
+  $('loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = $('loginBtn');
+    btn.disabled = true; $('loginErr').textContent = '';
+    try {
+      await signIn($('email').value.trim(), $('password').value);
+      $('login').hidden = true;
+      $('signOut').hidden = false;
+      start();
+    } catch (err) {
+      $('loginErr').textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  $('signOut').onclick = () => {
+    clearSession();
+    location.reload();
+  };
+
   $('stopBtn').onclick = stopListening;
   renderDevices();
-  connect();
-  log('Tip: browsers need a user gesture to start audio — click a device’s Listen button.');
+
+  // Nothing connects until we hold a credential — otherwise the socket just
+  // gets closed with 4003 and the page looks broken instead of asking to sign in.
+  ensureAuth().then((ok) => {
+    if (ok) {
+      if (readSession()) $('signOut').hidden = false;
+      start();
+    } else {
+      showLogin('');
+    }
+  });
 });
+
+function start() {
+  connect();
+  loadRecordings();
+  log('Tip: browsers need a user gesture to start audio — click a device’s Listen button.');
+}

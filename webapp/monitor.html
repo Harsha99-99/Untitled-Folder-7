@@ -7,8 +7,25 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="login" class="tap-overlay" hidden>
+    <form id="loginForm" style="background:var(--panel);padding:24px;border-radius:12px;border:1px solid var(--border);min-width:280px;max-width:340px">
+      <div class="tap-big" style="font-size:19px;margin-bottom:4px">Sign in</div>
+      <div class="tap-sub" style="margin-bottom:16px">Monitor access is restricted.</div>
+      <label class="hint" for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required
+             style="width:100%;padding:9px 10px;margin:4px 0 12px;border-radius:8px;background:var(--bg);color:var(--fg);border:1px solid var(--border)" />
+      <label class="hint" for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required
+             style="width:100%;padding:9px 10px;margin:4px 0 16px;border-radius:8px;background:var(--bg);color:var(--fg);border:1px solid var(--border)" />
+      <button id="loginBtn" class="primary" type="submit" style="width:100%">Sign in</button>
+      <div id="loginErr" class="hint" style="color:#e53e3e;margin-top:10px;min-height:18px"></div>
+    </form>
+  </div>
+
   <main>
-    <h1>Hub Monitor <span class="tag">local</span></h1>
+    <h1>Hub Monitor <span class="tag">live</span>
+      <button id="signOut" class="ghost" type="button" hidden style="float:right;font-size:12px">Sign out</button>
+    </h1>
     <p class="sub">Live audio from every remote device streaming to this hub.
       Click a device to listen. Token-gated — only reachable with your hub token.</p>
 
