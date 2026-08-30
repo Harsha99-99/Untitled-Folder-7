@@ -29,3 +29,7 @@ Thumbs.db
 # Node / Worker
 node_modules/
 .wrangler/
+
+# Agent skills: .agents/ holds the real files (tracked). .claude/skills/ are
+# machine-local symlinks to absolute paths — recreated by `npx skills add`.
+.claude/skills/
