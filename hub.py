@@ -44,7 +44,10 @@ TAP_MAXLEN = 256  # per-tap queued chunks before we drop oldest
 def lan_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close(); return ip
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
     except Exception:
         return "127.0.0.1"
 
@@ -153,7 +156,8 @@ async def ws_handler(request):
 
 
 async def handle_sender(app, request, ws):
-    sid = app["state"]["next_id"]; app["state"]["next_id"] += 1
+    sid = app["state"]["next_id"]
+    app["state"]["next_id"] += 1
     name = request.query.get("name") or f"Device {sid}"
     app["senders"][sid] = {"name": name, "sr": 48000, "ws": ws,
                            "level": {"rms": 0, "peak": 0}, "listeners": set()}
@@ -182,7 +186,8 @@ async def handle_sender(app, request, ws):
                         q.put_nowait(msg.data)
                     except queue.Full:
                         try:
-                            q.get_nowait(); q.put_nowait(msg.data)
+                            q.get_nowait()
+                            q.put_nowait(msg.data)
                         except Exception:
                             pass
             elif msg.type == WSMsgType.TEXT:
@@ -364,7 +369,8 @@ def main():
     args = ap.parse_args()
 
     if not os.path.isdir(WEBROOT):
-        print(f"[-] webapp/ not found at {WEBROOT}"); sys.exit(1)
+        print(f"[-] webapp/ not found at {WEBROOT}")
+        sys.exit(1)
 
     hub = HubServer(port=args.port, token=args.token)
     hub.start()
@@ -372,9 +378,9 @@ def main():
     print("=" * 64)
     print("  Bluetooth Audio Hub — multi-device live listening")
     print("=" * 64)
-    print(f"  Sender page (each remote device):")
+    print("  Sender page (each remote device):")
     print(f"     http://localhost:{args.port}/           (or via tunnel)")
-    print(f"  Monitor dashboard (this PC):")
+    print("  Monitor dashboard (this PC):")
     print(f"     http://localhost:{args.port}/monitor.html?token={hub.token}")
     print(f"  LAN IP: {ip}   |   token: {hub.token}")
     print("=" * 64)
