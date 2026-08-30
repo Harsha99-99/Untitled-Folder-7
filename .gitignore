@@ -25,3 +25,7 @@ Thumbs.db
 
 # ...but the PyInstaller spec is build source, keep it
 !BluetoothAudioHub.spec
+
+# Node / Worker
+node_modules/
+.wrangler/

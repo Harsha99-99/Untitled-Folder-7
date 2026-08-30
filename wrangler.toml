@@ -1,0 +1,34 @@
+# wrangler.toml — Cloudflare Worker: static pages + audio relay (Durable Object).
+#
+# The Git-connected build runs `npx wrangler deploy` from the repo root, which
+# reads this file, bundles worker/index.ts (+ worker/hub.ts), uploads webapp/
+# as static assets, and applies the Durable Object migration below.
+#
+# name MUST match the existing Worker so deploys update it rather than spawning
+# a new one.
+
+name = "untitled-folder-7"
+main = "worker/index.ts"
+compatibility_date = "2026-08-01"
+
+# Serve the sender + monitor pages straight from webapp/. Asset paths are
+# served directly; only /ws falls through to the Worker (see worker/index.ts).
+[assets]
+directory = "./webapp"
+binding = "ASSETS"
+
+# The relay. One SQLite-backed Durable Object class; the free Workers plan
+# supports these and is not billed for their storage.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "AudioHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AudioHub"]
+
+# HUB_TOKEN gates the monitor/listener role. It is intentionally NOT set here —
+# add it as an encrypted secret so it never lives in the repo:
+#     npx wrangler secret put HUB_TOKEN
+# or set it as a Variable in the Worker's dashboard (Settings → Variables).
+# While unset, listening is OPEN (fine for a first connectivity test only).
