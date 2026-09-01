@@ -1,6 +1,11 @@
 // monitor.js — operator dashboard: list live devices, listen to one live.
 import { VoiceDSP } from './dsp.js';
 
+// Bump on every playback-affecting change. Shown in the header and the log so
+// we can tell at a glance whether a device is running the current code or a
+// cached older build.
+const BUILD = 'build 2026-09-01c · adaptive-buffer';
+
 const $ = (id) => document.getElementById(id);
 const log = (m) => {
   const el = $('log'); const ts = new Date().toLocaleTimeString();
@@ -177,6 +182,12 @@ function renderRecordings(items) {
     dl.className = 'ghost';
     dl.onclick = () => downloadRecording(it.storage_key, dl);
     row.appendChild(dl);
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    del.className = 'ghost';
+    del.title = 'Permanently delete this recording from the hub';
+    del.onclick = () => deleteRecording(it, del);
+    row.appendChild(del);
     box.appendChild(row);
   }
 }
@@ -220,6 +231,27 @@ async function downloadRecording(key, btn) {
     log('[-] ' + e.message);
   } finally {
     btn.textContent = prev;
+  }
+}
+
+// Permanently delete one recording (storage object + index row) via the hub.
+async function deleteRecording(it, btn) {
+  const label = `${it.device_name || 'recording'} · ${new Date(it.started_at).toLocaleString()}`;
+  if (!confirm(`Delete this recording permanently?\n\n${label}\n\nThis cannot be undone.`)) return;
+  const prev = btn.textContent;
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const r = await fetch(
+      `/api/recording-delete?token=${encodeURIComponent(token)}&key=${encodeURIComponent(it.storage_key)}`,
+      { method: 'POST' },
+    );
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || `delete failed (${r.status})`);
+    log(`[i] Deleted recording ${it.storage_key}`);
+    loadRecordings();
+  } catch (e) {
+    log('[-] Could not delete: ' + e.message);
+    btn.textContent = prev; btn.disabled = false;
   }
 }
 
@@ -290,19 +322,35 @@ function stopListening() {
 // output clock, which a Bluetooth sink (its own drifting clock, bursty
 // delivery) fights, glitching the audio. The worklet resamples the incoming
 // stream to the context rate and drift-corrects the buffer instead.
+let lastUnderruns = 0;
 async function startPlayback(sr) {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.audioWorklet.addModule('play-worklet.js');
     player = new AudioWorkletNode(ctx, 'player', { numberOfInputs: 0, outputChannelCount: [2] });
+    // The worklet reports buffer health; surface starvation and the auto-tuned
+    // target so a stuttering output is visible instead of a mystery.
+    player.port.onmessage = (e) => {
+      const m = e.data;
+      if (m.type !== 'stats') return;
+      if (m.underruns > lastUnderruns) {
+        log(`[!] audio underran (${m.underruns} total) — buffer grew to ${m.targetMs} ms to cope.`);
+        lastUnderruns = m.underruns;
+      }
+    };
     gain = ctx.createGain(); gain.gain.value = (+$('vol').value) / 100;
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
     player.connect(analyser); analyser.connect(gain); gain.connect(ctx.destination);
     requestAnimationFrame(draw);
   }
-  // Configure the buffer for this stream's rate. Target sits above the sender's
-  // 250 ms batch interval plus network/Bluetooth jitter so it rarely starves.
-  player.port.postMessage({ type: 'config', inRate: sr, targetMs: 350, minMs: 160, maxMs: 800 });
+  lastUnderruns = 0;
+  // Buffer starts at 300 ms and auto-grows on underrun, so a bursty Bluetooth
+  // sink (AirPods) converges on a depth that holds. Log the output path so a
+  // stutter can be tied to the device/latency rather than guessed at.
+  const lat = (ctx.baseLatency ? Math.round(ctx.baseLatency * 1000) : 0)
+    + (ctx.outputLatency ? '+' + Math.round(ctx.outputLatency * 1000) : '');
+  log(`[i] output @ ${ctx.sampleRate} Hz, latency ${lat} ms; stream ${sr} Hz (${BUILD}).`);
+  player.port.postMessage({ type: 'config', inRate: sr, targetMs: 300, maxMs: 2000 });
   player.port.postMessage({ type: 'flush' });
   if (ctx.state === 'suspended') await ctx.resume();
 }
@@ -340,6 +388,8 @@ function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;
 
 // ---- wiring ---------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', () => {
+  const b = $('build'); if (b) b.textContent = BUILD;
+  log(`[i] ${BUILD}`);
   if (!token) { log('[-] No token in URL. Open the monitor link printed by the hub (…/monitor.html?token=…).'); }
   $('vol').oninput = (e) => { if (gain) gain.gain.value = (+e.target.value) / 100; };
 
