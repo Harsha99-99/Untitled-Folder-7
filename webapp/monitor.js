@@ -182,6 +182,12 @@ function renderRecordings(items) {
     dl.className = 'ghost';
     dl.onclick = () => downloadRecording(it.storage_key, dl);
     row.appendChild(dl);
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    del.className = 'ghost';
+    del.title = 'Permanently delete this recording from the hub';
+    del.onclick = () => deleteRecording(it, del);
+    row.appendChild(del);
     box.appendChild(row);
   }
 }
@@ -225,6 +231,27 @@ async function downloadRecording(key, btn) {
     log('[-] ' + e.message);
   } finally {
     btn.textContent = prev;
+  }
+}
+
+// Permanently delete one recording (storage object + index row) via the hub.
+async function deleteRecording(it, btn) {
+  const label = `${it.device_name || 'recording'} · ${new Date(it.started_at).toLocaleString()}`;
+  if (!confirm(`Delete this recording permanently?\n\n${label}\n\nThis cannot be undone.`)) return;
+  const prev = btn.textContent;
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const r = await fetch(
+      `/api/recording-delete?token=${encodeURIComponent(token)}&key=${encodeURIComponent(it.storage_key)}`,
+      { method: 'POST' },
+    );
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || `delete failed (${r.status})`);
+    log(`[i] Deleted recording ${it.storage_key}`);
+    loadRecordings();
+  } catch (e) {
+    log('[-] Could not delete: ' + e.message);
+    btn.textContent = prev; btn.disabled = false;
   }
 }
 

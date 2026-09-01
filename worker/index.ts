@@ -124,6 +124,35 @@ async function signRecording(env: Env, storageKey: string): Promise<Response> {
   return json({ url: `${base}/storage/v1${body.signedURL}` });
 }
 
+// POST /api/recording-delete?key=… — remove one recording: delete the stored
+// object AND its index row. Same service-role key and token gate as the rest.
+// A missing object (404) is treated as already gone so the index row is still
+// cleaned up. storage_key values are sanitised at write time (recorder.ts) to
+// [A-Za-z0-9._-] plus "/", so they are safe to interpolate into the path.
+async function deleteRecording(env: Env, storageKey: string): Promise<Response> {
+  const base = (env.SUPABASE_URL as string).replace(/\/+$/, "");
+  const key = env.SUPABASE_SERVICE_ROLE_KEY as string;
+  const bucket = env.SUPABASE_RECORDINGS_BUCKET || "recordings";
+
+  const obj = await fetch(`${base}/storage/v1/object/${bucket}/${storageKey}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${key}`, apikey: key },
+  });
+  if (!obj.ok && obj.status !== 404) {
+    return json({ error: `storage delete failed ${obj.status}`, detail: await obj.text() }, 502);
+  }
+
+  const row = await fetch(
+    `${base}/rest/v1/sessions?storage_key=eq.${encodeURIComponent(storageKey)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${key}`, apikey: key, Prefer: "return=minimal" },
+    },
+  );
+  if (!row.ok) return json({ error: `index delete failed ${row.status}`, detail: await row.text() }, 502);
+  return json({ ok: true });
+}
+
 // Serve a static asset, but force the page and its code to REVALIDATE. iOS
 // Safari (and others) cache the HTML and, worse, the AudioWorklet module very
 // hard, so a redeployed fix can sit unused on a listener's device until they
@@ -194,6 +223,13 @@ export default {
         const k = url.searchParams.get("key");
         if (!k) return json({ error: "missing key" }, 400);
         return signRecording(env, k);
+      }
+      if (url.pathname === "/api/recording-delete") {
+        // Destructive: POST only, so a stray GET or a prefetch can't wipe a file.
+        if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+        const k = url.searchParams.get("key");
+        if (!k) return json({ error: "missing key" }, 400);
+        return deleteRecording(env, k);
       }
       return json({ error: "not found" }, 404);
     }
