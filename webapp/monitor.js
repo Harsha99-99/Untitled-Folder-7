@@ -285,20 +285,26 @@ function stopListening() {
 }
 
 // ---- playback -------------------------------------------------------------
+// The context runs at the OUTPUT device's native rate — never pinned to the
+// sender's rate. Pinning forced the whole graph to be resampled against the
+// output clock, which a Bluetooth sink (its own drifting clock, bursty
+// delivery) fights, glitching the audio. The worklet resamples the incoming
+// stream to the context rate and drift-corrects the buffer instead.
 async function startPlayback(sr) {
-  if (ctx && ctx.sampleRate !== sr) { await ctx.close(); ctx = null; }
   if (!ctx) {
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sr });
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.audioWorklet.addModule('play-worklet.js');
     player = new AudioWorkletNode(ctx, 'player', { numberOfInputs: 0, outputChannelCount: [2] });
-    player.port.postMessage({ type: 'config', prebuffer: Math.round(sr * 0.40) }); // covers the sender's 250 ms batches
     gain = ctx.createGain(); gain.gain.value = (+$('vol').value) / 100;
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
     player.connect(analyser); analyser.connect(gain); gain.connect(ctx.destination);
     requestAnimationFrame(draw);
   }
-  if (ctx.state === 'suspended') await ctx.resume();
+  // Configure the buffer for this stream's rate. Target sits above the sender's
+  // 250 ms batch interval plus network/Bluetooth jitter so it rarely starves.
+  player.port.postMessage({ type: 'config', inRate: sr, targetMs: 350, minMs: 160, maxMs: 800 });
   player.port.postMessage({ type: 'flush' });
+  if (ctx.state === 'suspended') await ctx.resume();
 }
 
 // ---- meter + waveform -----------------------------------------------------
