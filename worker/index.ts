@@ -124,6 +124,23 @@ async function signRecording(env: Env, storageKey: string): Promise<Response> {
   return json({ url: `${base}/storage/v1${body.signedURL}` });
 }
 
+// Serve a static asset, but force the page and its code to REVALIDATE. iOS
+// Safari (and others) cache the HTML and, worse, the AudioWorklet module very
+// hard, so a redeployed fix can sit unused on a listener's device until they
+// manually clear website data. `no-cache` doesn't disable caching — ASSETS
+// still answers with an ETag, so an unchanged file 304s cheaply — it just
+// guarantees the browser checks for a newer version every load. Non-code
+// assets keep whatever caching ASSETS assigned.
+async function serveAsset(req: Request, env: Env): Promise<Response> {
+  const res = await env.ASSETS.fetch(req);
+  const p = new URL(req.url).pathname.toLowerCase();
+  const revalidate = p === "/" || p.endsWith(".html") || p.endsWith(".js") || p.endsWith(".css");
+  if (!revalidate) return res;
+  const headers = new Headers(res.headers);
+  headers.set("Cache-Control", "no-cache");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -147,7 +164,7 @@ export default {
         const id = env.HUB.idFromName("global");
         return env.HUB.get(id).fetch(req);
       }
-      return env.ASSETS.fetch(req);
+      return serveAsset(req, env);
     }
 
     // ---- admin host ----------------------------------------------------
@@ -202,7 +219,7 @@ export default {
     }
 
     // Everything else is a static asset (index.html, monitor.html, JS, CSS).
-    return env.ASSETS.fetch(req);
+    return serveAsset(req, env);
   },
 };
 
