@@ -317,6 +317,16 @@ function onWorklet(e) {
     const i16 = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) { let v = f[i]; v = v < -1 ? -1 : v > 1 ? 1 : v; i16[i] = v * 32767; }
     sendChunks.push(i16);
+    // Drive sending from the audio callback, not only the 250 ms timer.
+    // Browsers throttle a BACKGROUNDED tab's timers to ~1/s, so a minimized
+    // sender would ship audio in one-second bursts and every listener would
+    // stutter once a second. The AudioWorklet keeps running in the background,
+    // so flushing here once ~250 ms has accumulated keeps the stream smooth
+    // even when this tab isn't in front. Same ~4/s message rate as the timer.
+    if (broadcastActive && ws && ws.readyState === WebSocket.OPEN
+        && queuedSamples() >= sampleRate * 0.25) {
+      flush();
+    }
   }
 }
 

@@ -4,7 +4,7 @@ import { VoiceDSP } from './dsp.js';
 // Bump on every playback-affecting change. Shown in the header and the log so
 // we can tell at a glance whether a device is running the current code or a
 // cached older build.
-const BUILD = 'build 2026-09-01c · adaptive-buffer';
+const BUILD = 'build 2026-09-01d · adaptive-buffer';
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => {
@@ -103,7 +103,7 @@ function onMessage(ev) {
       recording = new Set(m.ids || []);
       renderDevices();
       // A device that just stopped has flushed its tail — pick up the new file.
-      if (was.size > recording.size) setTimeout(loadRecordings, 1500);
+      if (was.size > recording.size) setTimeout(() => loadRecordings({ quiet: true }), 1500);
     }
     else if (m.type === 'subscribed') {
       playSR = m.sr || 48000;
@@ -141,20 +141,34 @@ function onMessage(ev) {
 // same token that gates listening.
 const fmtBytes = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB');
 
-async function loadRecordings() {
+// quiet=true is the auto-refresh path: don't flash "Loading…" or clobber the
+// current list on a transient error — just replace it in place when new data
+// arrives. The list is driven entirely by the `sessions` table, so this is how
+// deletions made anywhere (the in-app button, or straight in Supabase) show up.
+async function loadRecordings({ quiet = false } = {}) {
   const box = $('recordings');
-  box.innerHTML = '<div class="empty">Loading…</div>';
+  if (!quiet) box.innerHTML = '<div class="empty">Loading…</div>';
   try {
-    const r = await fetch(`/api/recordings?token=${encodeURIComponent(token)}`);
+    const r = await fetch(`/api/recordings?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
     const data = await r.json();
     if (!r.ok) {
-      box.innerHTML = `<div class="empty">${escapeHtml(data.hint || data.error || 'Could not load recordings.')}</div>`;
+      if (!quiet) box.innerHTML = `<div class="empty">${escapeHtml(data.hint || data.error || 'Could not load recordings.')}</div>`;
       return;
     }
     renderRecordings(data.items || []);
   } catch (e) {
-    box.innerHTML = `<div class="empty">Could not reach the hub: ${escapeHtml(String(e))}</div>`;
+    if (!quiet) box.innerHTML = `<div class="empty">Could not reach the hub: ${escapeHtml(String(e))}</div>`;
   }
+}
+
+// Keep the recordings list in sync with the server without a manual Refresh:
+// poll while the tab is visible, and refresh the moment it regains focus (so a
+// deletion done elsewhere — e.g. in Supabase — appears within seconds).
+let recTimer = null;
+function startRecordingsAutoRefresh() {
+  if (recTimer) return;
+  recTimer = setInterval(() => { if (!document.hidden) loadRecordings({ quiet: true }); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadRecordings({ quiet: true }); });
 }
 
 function renderRecordings(items) {
@@ -248,7 +262,7 @@ async function deleteRecording(it, btn) {
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) throw new Error(d.error || `delete failed (${r.status})`);
     log(`[i] Deleted recording ${it.storage_key}`);
-    loadRecordings();
+    loadRecordings({ quiet: true });
   } catch (e) {
     log('[-] Could not delete: ' + e.message);
     btn.textContent = prev; btn.disabled = false;
@@ -404,7 +418,7 @@ window.addEventListener('DOMContentLoaded', () => {
   bindDsp('dspAgc', 'agc');
   bindDsp('dspGate', 'gate');
 
-  $('recRefresh').onclick = loadRecordings;
+  $('recRefresh').onclick = () => loadRecordings();
 
   $('loginForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -445,5 +459,6 @@ window.addEventListener('DOMContentLoaded', () => {
 function start() {
   connect();
   loadRecordings();
+  startRecordingsAutoRefresh();
   log('Tip: browsers need a user gesture to start audio — click a device’s Listen button.');
 }
