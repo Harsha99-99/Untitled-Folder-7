@@ -153,6 +153,40 @@ async function deleteRecording(env: Env, storageKey: string): Promise<Response> 
   return json({ ok: true });
 }
 
+// POST /api/recordings-clear — delete EVERY recording: all stored objects and
+// all index rows. Same gate as the rest. Objects are removed in one bulk call
+// per 100 keys; then the whole sessions table is emptied.
+async function clearRecordings(env: Env): Promise<Response> {
+  const base = (env.SUPABASE_URL as string).replace(/\/+$/, "");
+  const key = env.SUPABASE_SERVICE_ROLE_KEY as string;
+  const bucket = env.SUPABASE_RECORDINGS_BUCKET || "recordings";
+  const auth = { Authorization: `Bearer ${key}`, apikey: key };
+
+  const list = await fetch(`${base}/rest/v1/sessions?select=storage_key`, { headers: auth });
+  if (!list.ok) return json({ error: `list failed ${list.status}`, detail: await list.text() }, 502);
+  const rows = (await list.json()) as Array<{ storage_key?: string }>;
+  const keys = rows.map((r) => r.storage_key).filter((k): k is string => Boolean(k));
+
+  for (let i = 0; i < keys.length; i += 100) {
+    const del = await fetch(`${base}/storage/v1/object/${bucket}`, {
+      method: "DELETE",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefixes: keys.slice(i, i + 100) }),
+    });
+    if (!del.ok && del.status !== 404) {
+      return json({ error: `storage bulk delete failed ${del.status}`, detail: await del.text() }, 502);
+    }
+  }
+
+  // PostgREST refuses an unfiltered DELETE; `id=not.is.null` matches every row.
+  const rowsDel = await fetch(`${base}/rest/v1/sessions?id=not.is.null`, {
+    method: "DELETE",
+    headers: { ...auth, Prefer: "return=minimal" },
+  });
+  if (!rowsDel.ok) return json({ error: `index clear failed ${rowsDel.status}`, detail: await rowsDel.text() }, 502);
+  return json({ ok: true, deleted: keys.length });
+}
+
 // Serve a static asset, but force the page and its code to REVALIDATE. iOS
 // Safari (and others) cache the HTML and, worse, the AudioWorklet module very
 // hard, so a redeployed fix can sit unused on a listener's device until they
@@ -230,6 +264,10 @@ export default {
         const k = url.searchParams.get("key");
         if (!k) return json({ error: "missing key" }, 400);
         return deleteRecording(env, k);
+      }
+      if (url.pathname === "/api/recordings-clear") {
+        if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+        return clearRecordings(env);
       }
       return json({ error: "not found" }, 404);
     }

@@ -4,7 +4,7 @@ import { VoiceDSP } from './dsp.js';
 // Bump on every playback-affecting change. Shown in the header and the log so
 // we can tell at a glance whether a device is running the current code or a
 // cached older build.
-const BUILD = 'build 2026-09-01d · adaptive-buffer';
+const BUILD = 'build 2026-09-02a · tuning + delete-all';
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => {
@@ -64,6 +64,7 @@ function showLogin(msg) {
 let ws = null;
 let devices = [];
 let recording = new Set();   // sids the hub is recording server-side
+let recItems = [];           // most recent recordings list (for the count in "Delete all")
 let currentId = null;
 
 let ctx = null, player = null, gain = null, analyser = null;
@@ -172,6 +173,7 @@ function startRecordingsAutoRefresh() {
 }
 
 function renderRecordings(items) {
+  recItems = items;
   const box = $('recordings');
   if (!items.length) {
     box.innerHTML = '<div class="empty">No recordings yet. Press Record on a device above — the hub keeps writing even if you close this page.</div>';
@@ -267,6 +269,77 @@ async function deleteRecording(it, btn) {
     log('[-] Could not delete: ' + e.message);
     btn.textContent = prev; btn.disabled = false;
   }
+}
+
+// ---- delete-all (with a secondary warning screen) -------------------------
+function showWipeConfirm() {
+  const n = recItems.length;
+  if (!n) { log('[i] No recordings to delete.'); return; }
+  $('wipeCount').textContent = `${n} recording${n === 1 ? '' : 's'}`;
+  $('wipeErr').textContent = '';
+  $('wipeGo').disabled = false;
+  $('wipeGo').textContent = 'Delete all';
+  $('wipeConfirm').hidden = false;
+}
+function hideWipeConfirm() { $('wipeConfirm').hidden = true; }
+
+async function clearAllRecordings() {
+  const go = $('wipeGo');
+  go.disabled = true; go.textContent = 'Deleting…'; $('wipeErr').textContent = '';
+  try {
+    const r = await fetch(`/api/recordings-clear?token=${encodeURIComponent(token)}`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || `clear failed (${r.status})`);
+    log(`[i] Deleted all recordings (${d.deleted ?? '?'}).`);
+    hideWipeConfirm();
+    loadRecordings({ quiet: true });
+  } catch (e) {
+    $('wipeErr').textContent = e.message;
+    go.disabled = false; go.textContent = 'Delete all';
+  }
+}
+
+// ---- audio tuning controls (live, persisted per browser) ------------------
+const TUNE_KEY = 'hub.tuning';
+function setupTuning() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(TUNE_KEY) || '{}') || {}; } catch {}
+  const save = () => {
+    try {
+      localStorage.setItem(TUNE_KEY, JSON.stringify({
+        hp: dsp.highpassHz, gain: dsp.gainDb, pres: dsp.presenceDb, gate: dsp.gateThreshDb,
+      }));
+    } catch {}
+  };
+
+  const wire = (id, valId, fmt, apply) => {
+    const el = $(id), lbl = $(valId);
+    if (!el) return null;
+    const update = (persist) => { const v = +el.value; apply(v); if (lbl) lbl.textContent = fmt(v); if (persist) save(); };
+    el.oninput = () => update(true);
+    return update;
+  };
+  const updates = [
+    ['hpHz', 'hpVal', (v) => `${v} Hz`, (v) => dsp.setHighpassHz(v)],
+    ['gainDb', 'gainVal', (v) => `${v} dB`, (v) => dsp.setGainDb(v)],
+    ['presDb', 'presVal', (v) => `${v} dB`, (v) => dsp.setPresenceDb(v)],
+    ['gateThr', 'gateVal', (v) => `${v} dB`, (v) => dsp.setGateThreshDb(v)],
+  ].map((a) => wire(...a));
+
+  // restore saved slider positions, then push them into the DSP + labels
+  if (saved.hp != null && $('hpHz')) $('hpHz').value = saved.hp;
+  if (saved.gain != null && $('gainDb')) $('gainDb').value = saved.gain;
+  if (saved.pres != null && $('presDb')) $('presDb').value = saved.pres;
+  if (saved.gate != null && $('gateThr')) $('gateThr').value = saved.gate;
+  updates.forEach((u) => u && u(false));
+
+  const reset = $('tuneReset');
+  if (reset) reset.onclick = () => {
+    const defaults = { hpHz: 110, gainDb: 12, presDb: 0, gateThr: -58 };
+    for (const [id, v] of Object.entries(defaults)) { const el = $(id); if (el) el.value = v; }
+    updates.forEach((u) => u && u(false));
+    save();
+  };
 }
 
 // ---- device list UI -------------------------------------------------------
@@ -418,7 +491,13 @@ window.addEventListener('DOMContentLoaded', () => {
   bindDsp('dspAgc', 'agc');
   bindDsp('dspGate', 'gate');
 
+  setupTuning();
+
   $('recRefresh').onclick = () => loadRecordings();
+  $('recDeleteAll').onclick = showWipeConfirm;
+  $('wipeCancel').onclick = hideWipeConfirm;
+  $('wipeGo').onclick = clearAllRecordings;
+  $('wipeConfirm').onclick = (e) => { if (e.target.id === 'wipeConfirm') hideWipeConfirm(); };
 
   $('loginForm').onsubmit = async (e) => {
     e.preventDefault();
