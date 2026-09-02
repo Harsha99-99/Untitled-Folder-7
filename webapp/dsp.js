@@ -19,7 +19,10 @@ export class VoiceDSP {
     this.sr = sampleRate;
 
     this.enabled = true;
-    this.gain = dbToLin(12.0);
+
+    // Makeup gain — adjustable from the monitor's tuning controls.
+    this.gainDb = 12.0;
+    this.gain = dbToLin(this.gainDb);
 
     this.agc = true;
     this.agcTarget = dbToLin(-18.0);
@@ -27,11 +30,25 @@ export class VoiceDSP {
     this._agcGain = 1.0;
 
     this.gate = true;
-    this.gateThresh = dbToLin(-58.0);
+    this.gateThreshDb = -58.0;
+    this.gateThresh = dbToLin(this.gateThreshDb);
     this._gateEnv = 0.0;
 
+    // Biquad states live outside _build* so moving a tuning slider (which
+    // rebuilds coefficients) doesn't clear the filter memory and click.
+    this._z1 = 0; this._z2 = 0;    // highpass
+    this._pz1 = 0; this._pz2 = 0;  // presence
+
     this.highpass = true;
-    this._buildHP(110.0);
+    this.highpassHz = 110.0;
+    this._buildHP(this.highpassHz);
+
+    // Presence: a gentle peaking boost around 3 kHz that lifts consonants and
+    // makes speech clearer. presenceDb = 0 is flat (off).
+    this.presenceDb = 0.0;
+    this.presenceHz = 3000.0;
+    this.presenceQ = 0.9;
+    this._buildPresence();
   }
 
   // A 2nd-order Butterworth highpass is the RBJ biquad at Q = 1/sqrt(2),
@@ -50,22 +67,49 @@ export class VoiceDSP {
     const a1 = -2 * cw;
     const a2 = 1 - alpha;
 
-    this._b = [b0 / a0, b1 / a0, b2 / a0];
+    this._b = [b0 / a0, b1 / a0, b2 / a0];   // transposed direct form II
     this._a = [a1 / a0, a2 / a0];
-    this._z1 = 0; // transposed direct form II state
-    this._z2 = 0;
   }
+
+  // RBJ peaking EQ. presenceDb > 0 boosts a band around presenceHz; 0 dB gives
+  // b == a, i.e. a flat (transparent) filter.
+  _buildPresence() {
+    const fc = Math.min(this.presenceHz, this.sr * 0.45);
+    const A = Math.pow(10, this.presenceDb / 40);
+    const w0 = (2 * Math.PI * fc) / this.sr;
+    const cw = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * this.presenceQ);
+
+    const b0 = 1 + alpha * A;
+    const b1 = -2 * cw;
+    const b2 = 1 - alpha * A;
+    const a0 = 1 + alpha / A;
+    const a1 = -2 * cw;
+    const a2 = 1 - alpha / A;
+
+    this._pb = [b0 / a0, b1 / a0, b2 / a0];
+    this._pa = [a1 / a0, a2 / a0];
+  }
+
+  // ---- live tuning setters (used by the monitor's tuning controls) ----
+  setGainDb(db) { this.gainDb = db; this.gain = dbToLin(db); }
+  setGateThreshDb(db) { this.gateThreshDb = db; this.gateThresh = dbToLin(db); }
+  setHighpassHz(hz) { this.highpassHz = hz; this._buildHP(hz); }
+  setPresenceDb(db) { this.presenceDb = db; this._buildPresence(); }
 
   setSampleRate(sr) {
     if (sr && sr !== this.sr) {
       this.sr = sr;
-      this._buildHP(110.0);
+      this._buildHP(this.highpassHz);
+      this._buildPresence();
     }
   }
 
   reset() {
     this._z1 = 0;
     this._z2 = 0;
+    this._pz1 = 0;
+    this._pz2 = 0;
     this._agcGain = 1.0;
     this._gateEnv = 0.0;
   }
@@ -96,7 +140,24 @@ export class VoiceDSP {
       y.set(x);
     }
 
-    // ---- fixed gain ----
+    // ---- presence / clarity (peaking EQ, stateful; skipped when flat) ----
+    if (this.presenceDb !== 0) {
+      const [b0, b1, b2] = this._pb;
+      const [a1, a2] = this._pa;
+      let z1 = this._pz1;
+      let z2 = this._pz2;
+      for (let i = 0; i < n; i++) {
+        const xn = y[i];
+        const out = b0 * xn + z1;
+        z1 = b1 * xn - a1 * out + z2;
+        z2 = b2 * xn - a2 * out;
+        y[i] = out;
+      }
+      this._pz1 = z1;
+      this._pz2 = z2;
+    }
+
+    // ---- makeup gain ----
     for (let i = 0; i < n; i++) y[i] *= this.gain;
 
     // Gate and AGC both key off the RAW input level, not the post-gain level,
